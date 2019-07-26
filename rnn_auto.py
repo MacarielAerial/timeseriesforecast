@@ -20,11 +20,13 @@ plt.style.use('ggplot')
 np.random.seed(233)
 
 # Global variables for engineers to adjust
+Export_Data_Path = 'Output_Data/'
+Export_Graph_Path = 'Graphic_Aid/'
 TRAINING_MODE = True
 SPLIT_RATIO = 0.85
 RESAMPLE_INTERVAL = '1.5T'
-Export_Data_Path = 'Output_Data/'
-Export_Graph_Path = 'Graphic_Aid/'
+N_STEPS_IN = 100
+N_STEPS_OUT = 20
 
 class IO:
 	def data_import(resample = True, resample_interval = '2T'):
@@ -255,7 +257,7 @@ def main():
 	Visualisation.all_factor_plot(df)
 
 	# Standardise all data then either train or import model for deployment
-	model, train_scaler, test_scaler, n_steps_in, n_steps_out, z = RNN.execution(df, training_mode = TRAINING_MODE, split_ratio = SPLIT_RATIO)
+	model, train_scaler, test_scaler, n_steps_in, n_steps_out, z = RNN.execution(df, training_mode = TRAINING_MODE, n_steps_in = N_STEPS_IN, n_steps_out = N_STEPS_OUT, split_ratio = SPLIT_RATIO)
 
 	# Deploy the trained model obtained from last function to predict future
 	df_future = RNN.deployment(z, model, train_scaler, test_scaler, n_steps_in, n_steps_out, columns, index, freq = RESAMPLE_INTERVAL)
