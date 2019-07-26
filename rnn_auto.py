@@ -51,11 +51,11 @@ class IO:
 		df_future.to_json(Export_Data_Path + 'Predicted_Future_Values.json')
 
 class Visualisation:
-	def print_reference_data(df, y_test, y_test_predicted, n_steps_in, n_steps_out):
+	def print_reference_data(df, y_test, y_test_predicted, n_steps_in, n_steps_out, test_scaler):
 		'''Print out predicted and actual reference of the same time period for reference'''
 		# Monitor dimensionality of output and test data
 		print('\nThe dimensionality of test data is: ' + str(y_test.shape))
-		print('The dimensionality of predicted data is: ' + str(predicted.shape) + '\n')
+		print('The dimensionality of predicted data is: ' + str(y_test_predicted.shape) + '\n')
 
 		# A sanity check on actual data
 		np.set_printoptions(precision = 1, suppress = True)
@@ -63,7 +63,7 @@ class Visualisation:
 		print(test_scaler.inverse_transform(y_test[-1]))
 		print('**********End**********\n')
 		print('**********Predicted ' + str(n_steps_out) + ' Tail Test Data**********')
-		print(test_scaler.inverse_transform(predicted[-1]))
+		print(test_scaler.inverse_transform(y_test_predicted[-1]))
 		print('**********End**********\n')
 		print('**********Actual Tail Data For Deployment**********')
 		print(df[- n_steps_in - n_steps_out:- n_steps_out])
@@ -243,7 +243,7 @@ class RNN:
 		y_test_predicted = model.predict(x_test)
 
 		# Print out test and prediction data for reference
-		Visualisation.print_reference_data(df, y_test, y_test_predicted, n_steps_in, n_steps_out)
+		Visualisation.print_reference_data(df, y_test, y_test_predicted, n_steps_in, n_steps_out, test_scaler)
 		
 		# Return a model, two scalers, two parameters and the input data z for model deployment
 		return model, train_scaler, test_scaler, n_steps_in, n_steps_out, z
