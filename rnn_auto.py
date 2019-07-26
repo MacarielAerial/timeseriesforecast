@@ -144,34 +144,6 @@ class AR:
 		predictions.columns = ['predicted']
 		return predictions
 
-class RNN:
-	'''Main class responsible for execution of training and prediction'''
-	def execution(df, training_mode, n_steps_in = 100, n_steps_out = 20, split_ratio = 0.8):
-		'''Main function either to train or to import model ready for deployment'''
-		# Scale data and split into train and test datasets
-		X, y, z, test, n_features, train_scaler, test_scaler = Pre_Processing.standardisation(df, n_steps_in, n_steps_out, split_ratio)
-
-		# Train or import model architecture, weights and configurations
-		if training_mode:
-			model, history = Architecture.architecture(X, y, n_steps_in, n_steps_out, n_features)
-			Visualisation.rnn_history_plot(history)
-		else:
-			model = load_model('rnn_model.h5')
-
-		# Visualize model structure to check for expected behaviour
-		print(model.summary())
-		plot_model(model, show_shapes = True, to_file = Export_Graph_Path + 'rnn_model.png')
-
-		# Evaluate model accuracy
-		x_test, y_test = Utilities.split_sequences(test, n_steps_in, n_steps_out)
-		model.evaluate(x = x_test, y = y_test, callbacks = [EarlyStopping(monitor = 'loss')])
-		y_test_predicted = model.predict(x_test)
-
-		# Print out test and prediction data for reference
-		Visualisation.print_reference_data(df, y_test, y_test_predicted, n_steps_in, n_steps_out)
-		
-		# Return a model, two scalers, two parameters and the input data z for model deployment
-		return model, train_scaler, test_scaler, n_steps_in, n_steps_out, z
 
 	def deployment(z, model, train_scaler, test_scaler, n_steps_in, n_steps_out, columns, index, freq):
 		'''Use existing model and the last known segment of data for prediction'''
@@ -187,6 +159,30 @@ class RNN:
 		
 		# Return prediction about future for export
 		return df_future
+
+class Utilities:
+	'''Auxillary functions'''
+	def split_sequences(sequences, n_steps_in, n_steps_out):
+		'''Lag data into difference sequences so to learn temporal structure within data'''
+		X, y = list(), list()
+		for i in range(len(sequences)):
+			end_ix = i + n_steps_in
+			out_end_ix = end_ix + n_steps_out
+			if out_end_ix > len(sequences):
+				break
+			seq_x, seq_y = sequences[i:end_ix], sequences[end_ix: out_end_ix]
+			X.append(seq_x)
+			y.append(seq_y)
+		# An unsupervised learning problem is now implemented as a supervised learning problem
+		return np.array(X), np.array(y)
+
+	def train_test_split(df_values, split_ratio):
+		'''Split data into training and testing sets'''
+		train_size = int(len(df_values) * split_ratio)
+		test_size = len(df_values) - train_size
+		train, test = df_values[0:train_size, :], df_values[train_size:len(df_values), :]
+		print('\nTrain data size: ' + str(train_size) + '\n' + 'Test data size: ' + str(test_size) + '\n')
+		return train, test
 
 class Pre_Processing:
 	def standardisation(df, n_steps_in, n_steps_out, split_ratio):
@@ -221,30 +217,34 @@ class Architecture:
 		model.save('rnn_model.h5')
 		return model, history
 
-class Utilities:
-	'''Auxillary functions'''
-	def split_sequences(sequences, n_steps_in, n_steps_out):
-		'''Lag data into difference sequences so to learn temporal structure within data'''
-		X, y = list(), list()
-		for i in range(len(sequences)):
-			end_ix = i + n_steps_in
-			out_end_ix = end_ix + n_steps_out
-			if out_end_ix > len(sequences):
-				break
-			seq_x, seq_y = sequences[i:end_ix], sequences[end_ix: out_end_ix]
-			X.append(seq_x)
-			y.append(seq_y)
-		# An unsupervised learning problem is now implemented as a supervised learning problem
-		return np.array(X), np.array(y)
+class RNN:
+	'''Main class responsible for execution of training and prediction'''
+	def execution(df, training_mode, n_steps_in = 100, n_steps_out = 20, split_ratio = 0.8):
+		'''Main function either to train or to import model ready for deployment'''
+		# Scale data and split into train and test datasets
+		X, y, z, test, n_features, train_scaler, test_scaler = Pre_Processing.standardisation(df, n_steps_in, n_steps_out, split_ratio)
 
-	def train_test_split(df_values, split_ratio):
-		'''Split data into training and testing sets'''
-		train_size = int(len(df_values) * split_ratio)
-		test_size = len(df_values) - train_size
-		train, test = df_values[0:train_size, :], df_values[train_size:len(df_values), :]
-		print('\nTrain data size: ' + str(train_size) + '\n' + 'Test data size: ' + str(test_size) + '\n')
-		return train, test
+		# Train or import model architecture, weights and configurations
+		if training_mode:
+			model, history = Architecture.architecture(X, y, n_steps_in, n_steps_out, n_features)
+			Visualisation.rnn_history_plot(history)
+		else:
+			model = load_model('rnn_model.h5')
 
+		# Visualize model structure to check for expected behaviour
+		print(model.summary())
+		plot_model(model, show_shapes = True, to_file = Export_Graph_Path + 'rnn_model.png')
+
+		# Evaluate model accuracy
+		x_test, y_test = Utilities.split_sequences(test, n_steps_in, n_steps_out)
+		model.evaluate(x = x_test, y = y_test, callbacks = [EarlyStopping(monitor = 'loss')])
+		y_test_predicted = model.predict(x_test)
+
+		# Print out test and prediction data for reference
+		Visualisation.print_reference_data(df, y_test, y_test_predicted, n_steps_in, n_steps_out)
+		
+		# Return a model, two scalers, two parameters and the input data z for model deployment
+		return model, train_scaler, test_scaler, n_steps_in, n_steps_out, z
 
 def main():
 	# Import and resample JSON data into neural network required data format
