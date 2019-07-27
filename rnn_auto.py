@@ -146,22 +146,6 @@ class AR:
 		predictions.columns = ['predicted']
 		return predictions
 
-
-	def deployment(z, model, train_scaler, test_scaler, n_steps_in, n_steps_out, columns, index, freq):
-		'''Use existing model and the last known segment of data for prediction'''
-		# Deploy the trained model to predict future
-		future_predicted = test_scaler.inverse_transform(model.predict(z)[0])
-		future_index = pd.date_range(start = index.array[-1], periods = n_steps_out + 1, freq = freq, closed = 'right')
-		df_future = pd.DataFrame(future_predicted, columns = columns, index = future_index)
-
-		# Print out future data for engineers' reference
-		print('\n**********Predicted Future ' + str(n_steps_out) + ' Tail Data with ' + str(n_steps_in) + ' Lookback**********')
-		print(df_future)
-		print('**********End**********\n')
-		
-		# Return prediction about future for export
-		return df_future
-
 class Utilities:
 	'''Auxillary functions'''
 	def split_sequences(sequences, n_steps_in, n_steps_out):
@@ -239,7 +223,7 @@ class RNN:
 
 		# Evaluate model accuracy
 		x_test, y_test = Utilities.split_sequences(test, n_steps_in, n_steps_out)
-		model.evaluate(x = x_test, y = y_test, callbacks = [EarlyStopping(monitor = 'loss')])
+		model.evaluate(x = x_test, y = y_test, callbacks = [EarlyStopping(monitor = 'loss', patience = 5)])
 		y_test_predicted = model.predict(x_test)
 
 		# Print out test and prediction data for reference
@@ -247,6 +231,21 @@ class RNN:
 		
 		# Return a model, two scalers, two parameters and the input data z for model deployment
 		return model, train_scaler, test_scaler, n_steps_in, n_steps_out, z
+
+	def deployment(z, model, train_scaler, test_scaler, n_steps_in, n_steps_out, columns, index, freq):
+		'''Use existing model and the last known segment of data for prediction'''
+		# Deploy the trained model to predict future
+		future_predicted = test_scaler.inverse_transform(model.predict(z)[0])
+		future_index = pd.date_range(start = index.array[-1], periods = n_steps_out + 1, freq = freq, closed = 'right')
+		df_future = pd.DataFrame(future_predicted, columns = columns, index = future_index)
+
+		# Print out future data for engineers' reference
+		print('\n**********Predicted Future ' + str(n_steps_out) + ' Tail Data with ' + str(n_steps_in) + ' Lookback**********')
+		print(df_future)
+		print('**********End**********\n')
+		
+		# Return prediction about future for export
+		return df_future
 
 def main():
 	# Import and resample JSON data into neural network required data format
