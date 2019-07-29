@@ -1,4 +1,3 @@
-
 from __future__ import absolute_import, division, print_function, unicode_literals
 
 import numpy as np
@@ -8,7 +7,7 @@ import matplotlib.pyplot as plt
 import urllib
 import sys
 import redis
-from tensorflow.keras.layers import Input, LSTM, Dense, Dropout, RepeatVector, TimeDistributed, Bidirectional
+from tensorflow.keras.layers import Input, LSTM, Dense, Dropout, BatchNormalization, RepeatVector, TimeDistributed, Bidirectional
 from tensorflow.keras.callbacks import EarlyStopping
 from tensorflow.keras.models import Model, load_model
 from tensorflow.keras.utils import plot_model
@@ -17,16 +16,18 @@ from sklearn.model_selection import train_test_split
 
 # Graphic module setting and psudo-random initialisation
 plt.style.use('ggplot')
+np.set_printoptions(precision = 1, suppress = True)
 np.random.seed(233)
 
 # Global variables for engineers to adjust
 Export_Data_Path = 'Output_Data/'
 Export_Graph_Path = 'Graphic_Aid/'
 TRAINING_MODE = True
-SPLIT_RATIO = 0.85
+SPLIT_RATIO = 0.8
 RESAMPLE_INTERVAL = '1.5T'
 N_STEPS_IN = 100
 N_STEPS_OUT = 20
+BATCH_NORMALIZATION = False
 
 class IO:
 	def data_import(resample = True, resample_interval = '2T'):
@@ -58,7 +59,6 @@ class Visualisation:
 		print('The dimensionality of predicted data is: ' + str(y_test_predicted.shape) + '\n')
 
 		# A sanity check on actual data
-		np.set_printoptions(precision = 1, suppress = True)
 		print('\n**********Actual ' + str(n_steps_out) + ' Tail Test Data**********')
 		print(test_scaler.inverse_transform(y_test[-1]))
 		print('**********End**********\n')
@@ -83,7 +83,7 @@ class Visualisation:
 		plt.close()
 
 	def all_factor_plot(df):
-		'''Provide a descriptive decomposition plot of raw data'''
+		'''Provide a descriptive decomposition plot of raw data (Only on one variable)'''
 		values = df.values
 		scaler = MinMaxScaler(feature_range = (0,1))
 		df = pd.DataFrame(scaler.fit_transform(values), columns = df.columns, index = df.index)
@@ -105,13 +105,13 @@ class Visualisation:
 	def rnn_history_plot(history):
 		'''Provide a visual aid for efficiency of the RNN model'''
 		plt.figure()
-		plt.plot(history.history['acc'])
-		plt.plot(history.history['val_acc'])
-		plt.title('Model Accuracy')
-		plt.ylabel('Accuracy')
+		plt.plot(history.history['loss'], color = 'blue')
+		plt.plot(history.history['val_loss'], color = 'red')
+		plt.title('Model Loss')
+		plt.ylabel('Loss')
 		plt.xlabel('Epoch')
 		plt.legend(['Train', 'Test'], loc = 'upper left')
-		plt.savefig(Export_Graph_Path + 'model_accuracy_plot.png', dpi = 500)
+		plt.savefig(Export_Graph_Path + 'model_loss_plot.png', dpi = 500)
 		plt.close()
 
 	def rnn_result_plot(values, train_predict_plot, test_predict_plot, index):
@@ -174,8 +174,8 @@ class Pre_Processing:
 	def standardisation(df, n_steps_in, n_steps_out, split_ratio):
 		'''Scale the data between 0 and 1 and split data into lagged input and output sequences'''
 		values = df.values
-		train_scaler = MinMaxScaler(feature_range = (0,1))
-		test_scaler = MinMaxScaler(feature_range = (0,1))
+		train_scaler = MinMaxScaler(feature_range = (-1,1))
+		test_scaler = MinMaxScaler(feature_range = (-1,1))
 		train, test = Utilities.train_test_split(values, split_ratio)
 		train, test = train_scaler.fit_transform(train), test_scaler.fit_transform(test)
 		z = np.array([test[-n_steps_in:]])
@@ -190,29 +190,35 @@ class Pre_Processing:
 		return X, y, z, test, n_features, train_scaler, test_scaler
 
 class Architecture:
-	def architecture(X, y, n_steps_in, n_steps_out, n_features):
+	def architecture(X, y, n_steps_in, n_steps_out, n_features, batch_normalization):
 		'''Define model architecture'''
-		inputs = Input(shape = (n_steps_in, n_features))
-		encoder = Bidirectional(LSTM(96, activation = 'relu', return_sequences = False, dropout = 0.3))(inputs)
-		multistep = RepeatVector(n_steps_out)(encoder)
-		decoder = Bidirectional(LSTM(96, activation = 'relu', return_sequences = True, dropout = 0.3))(multistep)
-		output = TimeDistributed(Dense(n_features))(decoder)
+		inputs = Input(shape = (n_steps_in, n_features), name = 'Input_Data')
+		encoder = Bidirectional(LSTM(96, activation = 'relu', return_sequences = False, dropout = 0.0, name = 'Encoder'), name = 'Two_Direction_1')(inputs)
+		if batch_normalization:
+			encoder = BatchNormalization()(encoder)
+		encoder = Dropout(0.2)(encoder)
+		multistep = RepeatVector(n_steps_out, name = 'Repeat_Latent_Features')(encoder)
+		decoder = Bidirectional(LSTM(96, activation = 'relu', return_sequences = True, dropout = 0.0, name = 'Decoder'), name = 'Two_Direction_2')(multistep)
+		if batch_normalization:
+			decoder = BatchNormalization()(decoder)
+		decoder = Dropout(0.2)(decoder)
+		output = TimeDistributed(Dense(n_features, name = 'Prediction'), name = 'Multistep')(decoder)
 		model = Model(inputs, output)
 		model.compile(optimizer = 'adam', loss = 'mse', metrics = ['accuracy'])
-		history = model.fit(X, y, validation_split = 0.15, epochs = 150, verbose = 1, callbacks = [EarlyStopping(monitor = 'loss')])
+		history = model.fit(X, y, validation_split = 0.15, epochs = 150, verbose = 2, callbacks = [EarlyStopping(monitor = 'loss')])
 		model.save('rnn_model.h5')
 		return model, history
 
 class RNN:
 	'''Main class responsible for execution of training and prediction'''
-	def execution(df, training_mode, n_steps_in = 100, n_steps_out = 20, split_ratio = 0.8):
+	def execution(df, training_mode, n_steps_in = 100, n_steps_out = 20, split_ratio = 0.8, batch_normalization = False):
 		'''Main function either to train or to import model ready for deployment'''
 		# Scale data and split into train and test datasets
 		X, y, z, test, n_features, train_scaler, test_scaler = Pre_Processing.standardisation(df, n_steps_in, n_steps_out, split_ratio)
 
 		# Train or import model architecture, weights and configurations
 		if training_mode:
-			model, history = Architecture.architecture(X, y, n_steps_in, n_steps_out, n_features)
+			model, history = Architecture.architecture(X, y, n_steps_in, n_steps_out, n_features, batch_normalization)
 			Visualisation.rnn_history_plot(history)
 		else:
 			model = load_model('rnn_model.h5')
@@ -256,7 +262,7 @@ def main():
 	Visualisation.all_factor_plot(df)
 
 	# Standardise all data then either train or import model for deployment
-	model, train_scaler, test_scaler, n_steps_in, n_steps_out, z = RNN.execution(df, training_mode = TRAINING_MODE, n_steps_in = N_STEPS_IN, n_steps_out = N_STEPS_OUT, split_ratio = SPLIT_RATIO)
+	model, train_scaler, test_scaler, n_steps_in, n_steps_out, z = RNN.execution(df, training_mode = TRAINING_MODE, n_steps_in = N_STEPS_IN, n_steps_out = N_STEPS_OUT, split_ratio = SPLIT_RATIO, batch_normalization = BATCH_NORMALIZATION)
 
 	# Deploy the trained model obtained from last function to predict future
 	df_future = RNN.deployment(z, model, train_scaler, test_scaler, n_steps_in, n_steps_out, columns, index, freq = RESAMPLE_INTERVAL)
