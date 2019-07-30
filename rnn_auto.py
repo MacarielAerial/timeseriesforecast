@@ -3,10 +3,12 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 import numpy as np
 import pandas as pd
 import math
-import matplotlib.pyplot as plt
+import time
+import json
 import urllib
 import sys
 import redis
+import matplotlib.pyplot as plt
 from tensorflow.keras.layers import Input, LSTM, Dense, Dropout, BatchNormalization, RepeatVector, TimeDistributed, Bidirectional
 from tensorflow.keras.callbacks import EarlyStopping
 from tensorflow.keras.models import Model, load_model
@@ -28,16 +30,25 @@ RESAMPLE_INTERVAL = '1.5T'
 N_STEPS_IN = 100
 N_STEPS_OUT = 20
 BATCH_NORMALIZATION = False
+SELECTED_VARIABLES = ['t1', 't2', 't3', 'l1', 'l2', 'l3', 'u1', 'u2', 'u3']
 
 class IO:
-	def data_import(resample = True, resample_interval = '2T'):
+	def data_import(selected_variables, resample = True, resample_interval = '2T'):
 		'''Import JSON formatted data as dataframes and resample them to given intervals'''
 		try:
-			df_raw = pd.read_json('https://rice.cn1.utools.club/data/test/average')
-			df_raw.to_json('average.json')
-		except urllib.error.HTTPError:
-			df_raw = pd.read_json('average.json')
-		df = df_raw[['t1', 't2', 't3', 'l1', 'l2', 'l3', 'u1', 'u2', 'u3']]
+			r = redis.Redis(host='172.16.3.88', port=6379, db=3, decode_responses = True)
+			df_unconverted = r.lrange('FH01201904220022||rtDataList', 0, -1)
+			df_raw = []
+			for str in df_unconverted:
+				df_raw.append(json.loads(str))
+			df_raw = pd.DataFrame(df_raw)
+			print('Successfully downloading the the most recent data')
+			df_raw.to_json('local_copy_' + time.ctime() + '.json')
+			print('Successfully saved a local copy from the most recent data')
+		except:
+			df_raw = pd.read_json('local_copy_' + time.ctime() + '.json')
+			print('Download unsuccessful. Using the local copy instead')
+		df = df_raw[selected_variables]
 		index = df_raw['operateTime']
 		df.set_index(pd.to_datetime(index, unit = 'ms'), inplace = True)
 		df = df.astype('float32')
@@ -255,7 +266,7 @@ class RNN:
 
 def main():
 	# Import and resample JSON data into neural network required data format
-	df, index, columns = IO.data_import(resample = True, resample_interval = RESAMPLE_INTERVAL)
+	df, index, columns = IO.data_import(resample = True, resample_interval = RESAMPLE_INTERVAL, selected_variables = SELECTED_VARIABLES)
 
 	# Some helpful visualisation for engineers to guide engineers' intuition about data
 	Visualisation.exploratory_plot_t1(df)
