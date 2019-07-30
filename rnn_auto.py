@@ -7,6 +7,7 @@ import time
 import json
 import urllib
 import sys
+import os
 import redis
 import matplotlib.pyplot as plt
 from tensorflow.keras.layers import Input, LSTM, Dense, Dropout, BatchNormalization, RepeatVector, TimeDistributed, Bidirectional
@@ -26,7 +27,7 @@ Export_Data_Path = 'Output_Data/'
 Export_Graph_Path = 'Graphic_Aid/'
 TRAINING_MODE = True
 SPLIT_RATIO = 0.8
-RESAMPLE_INTERVAL = '1.5T'
+RESAMPLE_INTERVAL = '4T'
 N_STEPS_IN = 100
 N_STEPS_OUT = 20
 BATCH_NORMALIZATION = False
@@ -43,6 +44,7 @@ class IO:
 				df_raw.append(json.loads(str))
 			df_raw = pd.DataFrame(df_raw)
 			print('Successfully downloading the the most recent data')
+			print(df_raw)
 			df_raw.to_json('local_copy_' + time.ctime() + '.json')
 			print('Successfully saved a local copy from the most recent data')
 		except:
@@ -216,7 +218,7 @@ class Architecture:
 		output = TimeDistributed(Dense(n_features, name = 'Prediction'), name = 'Multistep')(decoder)
 		model = Model(inputs, output)
 		model.compile(optimizer = 'adam', loss = 'mse', metrics = ['accuracy'])
-		history = model.fit(X, y, validation_split = 0.15, epochs = 150, verbose = 2, callbacks = [EarlyStopping(monitor = 'loss')])
+		history = model.fit(X, y, validation_split = 0.1, epochs = 150, verbose = 2, callbacks = [EarlyStopping(monitor = 'loss')])
 		model.save('rnn_model.h5')
 		return model, history
 
