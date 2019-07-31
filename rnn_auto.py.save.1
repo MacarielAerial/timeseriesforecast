@@ -1,17 +1,15 @@
+
 from __future__ import absolute_import, division, print_function, unicode_literals
 
 import numpy as np
 import pandas as pd
 import math
-import time
 import json
+import matplotlib.pyplot as plt
 import urllib
 import sys
-import os
-import glob
 import redis
-import matplotlib.pyplot as plt
-from tensorflow.keras.layers import Input, LSTM, Dense, Dropout, BatchNormalization, RepeatVector, TimeDistributed, Bidirectional
+from tensorflow.keras.layers import Input, LSTM, Dense, Dropout, RepeatVector, TimeDistributed, Bidirectional
 from tensorflow.keras.callbacks import EarlyStopping
 from tensorflow.keras.models import Model, load_model
 from tensorflow.keras.utils import plot_model
@@ -20,45 +18,34 @@ from sklearn.model_selection import train_test_split
 
 # Graphic module setting and psudo-random initialisation
 plt.style.use('ggplot')
-np.set_printoptions(precision = 1, suppress = True)
 np.random.seed(233)
 
 # Global variables for engineers to adjust
 Export_Data_Path = 'Output_Data/'
 Export_Graph_Path = 'Graphic_Aid/'
 TRAINING_MODE = True
-SPLIT_RATIO = 0.8
-RESAMPLE_INTERVAL = '4T'
+SPLIT_RATIO = 0.85
+RESAMPLE_INTERVAL = '1.5T'
 N_STEPS_IN = 100
 N_STEPS_OUT = 20
-BATCH_NORMALIZATION = False
-SELECTED_VARIABLES = ['t1', 't2', 't3', 'l1', 'l2', 'l3', 'u1', 'u2', 'u3']
-INDEX_VARIABLE = 'operateTime'
-BACKUP_PATH = 'Backup_Raw_Data/'
 
 class IO:
-	def data_import(selected_variables, index_variable, backup_path, resample = True, resample_interval = '2T', backup_max = 10):
+	def data_import(resample = True, resample_interval = '2T'):
 		'''Import JSON formatted data as dataframes and resample them to given intervals'''
-		try:
-			# Load the newest data from redis
-			r = redis.Redis(host='172.16.3.88', port=6379, db=3, decode_responses = True)
-			byte_json = r.lrange('FH01201904220022||rtDataList', 0, -1)
-			df_raw = Utilities.byte_to_df(byte_json)
-			print('Loaded the the most recent data')
-
-			# Check to delete the oldest copy
-			Utilities.delete_oldest_backup(backup_path, backup_max)
-
-			# Save this copy locally
-			df_raw.to_json(backup_path + 'local_copy_' + time.ctime() + '.json')
-			print('Saved a local copy from the most recent data')
-		except:
-			# Use local copy when redis is not available
-			df_raw = pd.read_json('local_copy_' + time.ctime() + '.json')
-			print('Download unsuccessful. Using the local copy instead')
-
-		# Select corret index and column names
-		df, index, columns = Utilities.assign_labels(df_raw, resample, resample_interval, selected_variables, index_variable)
+		r = redis.Redis(host='172.16.3.88', port=6379, db=3)
+		df_raw = json.dumps(bytes(r.get('data')).decode('utf-8'))
+ 		print(df_raw)
+		#df_raw.to_json('average.json')
+		#except urllib.error.HTTPError:
+		#df_raw = pd.read_json('average.json')
+		df = df_raw[['t1', 't2', 't3', 'l1', 'l2', 'l3', 'u1', 'u2', 'u3']]
+		index = df_raw['operateTime']
+		df.set_index(pd.to_datetime(index, unit = 'ms'), inplace = True)
+		df = df.astype('float32')
+		if resample:
+			df = df.resample(resample_interval).last().ffill()
+		index = df.index
+		columns = df.columns
 		return df, index, columns
 
 	def data_export(df_future):
@@ -73,6 +60,7 @@ class Visualisation:
 		print('The dimensionality of predicted data is: ' + str(y_test_predicted.shape) + '\n')
 
 		# A sanity check on actual data
+		np.set_printoptions(precision = 1, suppress = True)
 		print('\n**********Actual ' + str(n_steps_out) + ' Tail Test Data**********')
 		print(test_scaler.inverse_transform(y_test[-1]))
 		print('**********End**********\n')
@@ -97,7 +85,7 @@ class Visualisation:
 		plt.close()
 
 	def all_factor_plot(df):
-		'''Provide a descriptive decomposition plot of raw data (Only on one variable)'''
+		'''Provide a descriptive decomposition plot of raw data'''
 		values = df.values
 		scaler = MinMaxScaler(feature_range = (0,1))
 		df = pd.DataFrame(scaler.fit_transform(values), columns = df.columns, index = df.index)
@@ -119,13 +107,13 @@ class Visualisation:
 	def rnn_history_plot(history):
 		'''Provide a visual aid for efficiency of the RNN model'''
 		plt.figure()
-		plt.plot(history.history['loss'], color = 'blue')
-		plt.plot(history.history['val_loss'], color = 'red')
-		plt.title('Model Loss')
-		plt.ylabel('Loss')
+		plt.plot(history.history['acc'])
+		plt.plot(history.history['val_acc'])
+		plt.title('Model Accuracy')
+		plt.ylabel('Accuracy')
 		plt.xlabel('Epoch')
 		plt.legend(['Train', 'Test'], loc = 'upper left')
-		plt.savefig(Export_Graph_Path + 'model_loss_plot.png', dpi = 500)
+		plt.savefig(Export_Graph_Path + 'model_accuracy_plot.png', dpi = 500)
 		plt.close()
 
 	def rnn_result_plot(values, train_predict_plot, test_predict_plot, index):
@@ -160,6 +148,22 @@ class AR:
 		predictions.columns = ['predicted']
 		return predictions
 
+
+	def deployment(z, model, train_scaler, test_scaler, n_steps_in, n_steps_out, columns, index, freq):
+		'''Use existing model and the last known segment of data for prediction'''
+		# Deploy the trained model to predict future
+		future_predicted = test_scaler.inverse_transform(model.predict(z)[0])
+		future_index = pd.date_range(start = index.array[-1], periods = n_steps_out + 1, freq = freq, closed = 'right')
+		df_future = pd.DataFrame(future_predicted, columns = columns, index = future_index)
+
+		# Print out future data for engineers' reference
+		print('\n**********Predicted Future ' + str(n_steps_out) + ' Tail Data with ' + str(n_steps_in) + ' Lookback**********')
+		print(df_future)
+		print('**********End**********\n')
+		
+		# Return prediction about future for export
+		return df_future
+
 class Utilities:
 	'''Auxillary functions'''
 	def split_sequences(sequences, n_steps_in, n_steps_out):
@@ -183,43 +187,13 @@ class Utilities:
 		train, test = df_values[0:train_size, :], df_values[train_size:len(df_values), :]
 		print('\nTrain data size: ' + str(train_size) + '\n' + 'Test data size: ' + str(test_size) + '\n')
 		return train, test
-	
-	def assign_labels(df_raw, resample, resample_interval, selected_variables, index_variable):
-		'''Assign index and column labels to a Pandas DataFrame and resample it'''
-		df = df_raw[selected_variables]
-		index = df_raw[index_variable]
-		df.set_index(pd.to_datetime(index, unit = 'ms'), inplace = True)
-		df = df.astype('float32')
-		if resample:
-			df = df.resample(resample_interval).last().ffill()
-		index = df.index
-		columns = df.columns
-		return df, index, columns
-
-	def byte_to_df(byte_json):
-		'''Convert bytestreamed raw data into a readable Pandas Dataframe'''
-		df_raw = []
-		for str_dict in byte_json:
-			df_raw.append(json.loads(str_dict))
-		df_raw = pd.DataFrame(df_raw)
-		return df_raw
-	
-	def delete_oldest_backup(backup_path, backup_max):
-		'''Delete the oldest copy of local backups'''
-		backup_list = glob.glob(backup_path + 'local_copy_*.json')
-		if len(backup_list) >= backup_max:
-			oldest_file = min(backup_list, key = os.path.getctime)
-			os.remove(os.path.abspath(oldest_file))
-			print('Deleted the oldest backup ' + oldest_file)
-		else:
-			print('Backup number has not exceeded the limit ' + str(backup_max))
 
 class Pre_Processing:
 	def standardisation(df, n_steps_in, n_steps_out, split_ratio):
 		'''Scale the data between 0 and 1 and split data into lagged input and output sequences'''
 		values = df.values
-		train_scaler = MinMaxScaler(feature_range = (-1,1))
-		test_scaler = MinMaxScaler(feature_range = (-1,1))
+		train_scaler = MinMaxScaler(feature_range = (0,1))
+		test_scaler = MinMaxScaler(feature_range = (0,1))
 		train, test = Utilities.train_test_split(values, split_ratio)
 		train, test = train_scaler.fit_transform(train), test_scaler.fit_transform(test)
 		z = np.array([test[-n_steps_in:]])
@@ -234,35 +208,29 @@ class Pre_Processing:
 		return X, y, z, test, n_features, train_scaler, test_scaler
 
 class Architecture:
-	def architecture(X, y, n_steps_in, n_steps_out, n_features, batch_normalization):
+	def architecture(X, y, n_steps_in, n_steps_out, n_features):
 		'''Define model architecture'''
-		inputs = Input(shape = (n_steps_in, n_features), name = 'Input_Data')
-		encoder = Bidirectional(LSTM(96, activation = 'relu', return_sequences = False, dropout = 0.0, name = 'Encoder'), name = 'Two_Direction_1')(inputs)
-		if batch_normalization:
-			encoder = BatchNormalization()(encoder)
-		encoder = Dropout(0.2)(encoder)
-		multistep = RepeatVector(n_steps_out, name = 'Repeat_Latent_Features')(encoder)
-		decoder = Bidirectional(LSTM(96, activation = 'relu', return_sequences = True, dropout = 0.0, name = 'Decoder'), name = 'Two_Direction_2')(multistep)
-		if batch_normalization:
-			decoder = BatchNormalization()(decoder)
-		decoder = Dropout(0.2)(decoder)
-		output = TimeDistributed(Dense(n_features, name = 'Prediction'), name = 'Multistep')(decoder)
+		inputs = Input(shape = (n_steps_in, n_features))
+		encoder = Bidirectional(LSTM(96, activation = 'relu', return_sequences = False, dropout = 0.3))(inputs)
+		multistep = RepeatVector(n_steps_out)(encoder)
+		decoder = Bidirectional(LSTM(96, activation = 'relu', return_sequences = True, dropout = 0.3))(multistep)
+		output = TimeDistributed(Dense(n_features))(decoder)
 		model = Model(inputs, output)
-		model.compile(optimizer = 'adam', loss = 'mse', metrics = ['mse'])
-		history = model.fit(X, y, validation_split = 0.1, epochs = 150, verbose = 2, callbacks = [EarlyStopping(monitor = 'loss')])
+		model.compile(optimizer = 'adam', loss = 'mse', metrics = ['accuracy'])
+		history = model.fit(X, y, validation_split = 0.15, epochs = 150, verbose = 1, callbacks = [EarlyStopping(monitor = 'loss')])
 		model.save('rnn_model.h5')
 		return model, history
 
 class RNN:
 	'''Main class responsible for execution of training and prediction'''
-	def execution(df, training_mode, n_steps_in = 100, n_steps_out = 20, split_ratio = 0.8, batch_normalization = False):
+	def execution(df, training_mode, n_steps_in = 100, n_steps_out = 20, split_ratio = 0.8):
 		'''Main function either to train or to import model ready for deployment'''
 		# Scale data and split into train and test datasets
 		X, y, z, test, n_features, train_scaler, test_scaler = Pre_Processing.standardisation(df, n_steps_in, n_steps_out, split_ratio)
 
 		# Train or import model architecture, weights and configurations
 		if training_mode:
-			model, history = Architecture.architecture(X, y, n_steps_in, n_steps_out, n_features, batch_normalization)
+			model, history = Architecture.architecture(X, y, n_steps_in, n_steps_out, n_features)
 			Visualisation.rnn_history_plot(history)
 		else:
 			model = load_model('rnn_model.h5')
@@ -273,7 +241,7 @@ class RNN:
 
 		# Evaluate model accuracy
 		x_test, y_test = Utilities.split_sequences(test, n_steps_in, n_steps_out)
-		model.evaluate(x = x_test, y = y_test, callbacks = [EarlyStopping(monitor = 'loss', patience = 5)])
+		model.evaluate(x = x_test, y = y_test, callbacks = [EarlyStopping(monitor = 'loss')])
 		y_test_predicted = model.predict(x_test)
 
 		# Print out test and prediction data for reference
@@ -282,31 +250,16 @@ class RNN:
 		# Return a model, two scalers, two parameters and the input data z for model deployment
 		return model, train_scaler, test_scaler, n_steps_in, n_steps_out, z
 
-	def deployment(z, model, train_scaler, test_scaler, n_steps_in, n_steps_out, columns, index, freq):
-		'''Use existing model and the last known segment of data for prediction'''
-		# Deploy the trained model to predict future
-		future_predicted = test_scaler.inverse_transform(model.predict(z)[0])
-		future_index = pd.date_range(start = index.array[-1], periods = n_steps_out + 1, freq = freq, closed = 'right')
-		df_future = pd.DataFrame(future_predicted, columns = columns, index = future_index)
-
-		# Print out future data for engineers' reference
-		print('\n**********Predicted Future ' + str(n_steps_out) + ' Tail Data with ' + str(n_steps_in) + ' Lookback**********')
-		print(df_future)
-		print('**********End**********\n')
-		
-		# Return prediction about future for export
-		return df_future
-
 def main():
 	# Import and resample JSON data into neural network required data format
-	df, index, columns = IO.data_import(resample = True, resample_interval = RESAMPLE_INTERVAL, selected_variables = SELECTED_VARIABLES, index_variable = INDEX_VARIABLE, backup_path = BACKUP_PATH)
+	df, index, columns = IO.data_import(resample = True, resample_interval = RESAMPLE_INTERVAL)
 
 	# Some helpful visualisation for engineers to guide engineers' intuition about data
 	Visualisation.exploratory_plot_t1(df)
 	Visualisation.all_factor_plot(df)
 
 	# Standardise all data then either train or import model for deployment
-	model, train_scaler, test_scaler, n_steps_in, n_steps_out, z = RNN.execution(df, training_mode = TRAINING_MODE, n_steps_in = N_STEPS_IN, n_steps_out = N_STEPS_OUT, split_ratio = SPLIT_RATIO, batch_normalization = BATCH_NORMALIZATION)
+	model, train_scaler, test_scaler, n_steps_in, n_steps_out, z = RNN.execution(df, training_mode = TRAINING_MODE, n_steps_in = N_STEPS_IN, n_steps_out = N_STEPS_OUT, split_ratio = SPLIT_RATIO)
 
 	# Deploy the trained model obtained from last function to predict future
 	df_future = RNN.deployment(z, model, train_scaler, test_scaler, n_steps_in, n_steps_out, columns, index, freq = RESAMPLE_INTERVAL)
