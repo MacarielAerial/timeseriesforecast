@@ -26,9 +26,9 @@ np.random.seed(233)
 # Global variables for engineers to adjust
 Export_Data_Path = 'Output_Data/'
 Export_Graph_Path = 'Graphic_Aid/'
-TRAINING_MODE = True
+TRAINING_MODE = False
 SPLIT_RATIO = 0.8
-RESAMPLE_INTERVAL = '1T'
+RESAMPLE_INTERVAL = '4T'
 N_STEPS_IN = 100
 N_STEPS_OUT = 20
 BATCH_NORMALIZATION = False
