@@ -28,7 +28,7 @@ Export_Data_Path = 'Output_Data/'
 Export_Graph_Path = 'Graphic_Aid/'
 TRAINING_MODE = True
 SPLIT_RATIO = 0.8
-RESAMPLE_INTERVAL = '4T'
+RESAMPLE_INTERVAL = '1T'
 N_STEPS_IN = 100
 N_STEPS_OUT = 20
 BATCH_NORMALIZATION = False
@@ -89,9 +89,7 @@ class Visualisation:
 		plt.figure()
 		pd.plotting.lag_plot(df['t1'])
 		plt.savefig(Export_Graph_Path + 'lag_plot_t1.png', dpi = 500)
-		plt.close()
 		# Autocorrelation plot
-		plt.figure()
 		pd.plotting.autocorrelation_plot(df['t1'])
 		plt.savefig(Export_Graph_Path + 'autocorrelation_plot_t1', dpi = 500)
 		plt.close()
