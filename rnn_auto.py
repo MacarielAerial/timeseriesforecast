@@ -89,9 +89,7 @@ class Visualisation:
 		plt.figure()
 		pd.plotting.lag_plot(df['t1'])
 		plt.savefig(Export_Graph_Path + 'lag_plot_t1.png', dpi = 500)
-		plt.close()
 		# Autocorrelation plot
-		plt.figure()
 		pd.plotting.autocorrelation_plot(df['t1'])
 		plt.savefig(Export_Graph_Path + 'autocorrelation_plot_t1', dpi = 500)
 		plt.close()
