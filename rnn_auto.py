@@ -50,11 +50,11 @@ class IO:
 			Utilities.delete_oldest_backup(backup_path, backup_max)
 
 			# Save this copy locally
-			df_raw.to_json(backup_path + 'local_copy_' + time.ctime() + '.json')
+			df_raw.to_json(backup_path + 'local_data_backup.json')
 			print('Saved a local copy from the most recent data')
 		except:
 			# Use local copy when redis is not available
-			df_raw = pd.read_json('local_copy_' + time.ctime() + '.json')
+			df_raw = pd.read_json('local_data_backup.json')
 			print('Download unsuccessful. Using the local copy instead')
 
 		# Select corret index and column names
