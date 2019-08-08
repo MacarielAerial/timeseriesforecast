@@ -2,42 +2,44 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 
 import numpy as np
 import pandas as pd
-import math
 import time
 import json
-import urllib
-import sys
 import os
 import glob
 import redis
 import matplotlib.pyplot as plt
+from tensorflow.compat.v1.logging import ERROR, set_verbosity
 from tensorflow.keras.layers import Input, LSTM, Dense, Dropout, BatchNormalization, RepeatVector, TimeDistributed, Bidirectional
 from tensorflow.keras.callbacks import EarlyStopping
 from tensorflow.keras.models import Model, load_model
 from tensorflow.keras.utils import plot_model
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import train_test_split
+from pandas.plotting import register_matplotlib_converters
 
 # Graphic module setting and psudo-random initialisation
+register_matplotlib_converters()
+set_verbosity(ERROR)
 plt.style.use('ggplot')
 np.set_printoptions(precision = 1, suppress = True)
 np.random.seed(233)
 
 # Global variables for engineers to adjust
+TRAINING_MODE = True
 Export_Data_Path = 'Output_Data/'
 Export_Graph_Path = 'Graphic_Aid/'
-TRAINING_MODE = False
+BACKUP_PATH = 'Backup_Raw_Data/'
 SPLIT_RATIO = 0.8
 RESAMPLE_INTERVAL = '4T'
 N_STEPS_IN = 100
 N_STEPS_OUT = 20
-BATCH_NORMALIZATION = False
-SELECTED_VARIABLES = ['t1', 't2', 't3', 'l1', 'l2', 'l3', 'u1', 'u2', 'u3']
 INDEX_VARIABLE = 'operateTime'
-BACKUP_PATH = 'Backup_Raw_Data/'
+SELECTED_VARIABLES = ['t1', 't2', 't3', 'l1', 'l2', 'l3', 'u1', 'u2', 'u3']
+IMPUTE_ZERO = True
+BATCH_NORMALIZATION = False
 
 class IO:
-	def data_import(selected_variables, index_variable, backup_path, resample = True, resample_interval = '2T', backup_max = 10):
+	def data_import(selected_variables, index_variable, backup_path, resample_interval = 'T', resample = True, backup_max = 10, impute_zero = True):
 		'''Import JSON formatted data as dataframes and resample them to given intervals'''
 		try:
 			# Load the newest data from redis
@@ -55,10 +57,11 @@ class IO:
 		except:
 			# Use local copy when redis is not available
 			df_raw = pd.read_json('local_data_backup.json')
+			# df_raw = pd.read_json(Utilities.get_newest_backup_name(backup_path))
 			print('Download unsuccessful. Using the local copy instead')
 
 		# Select corret index and column names
-		df, index, columns = Utilities.assign_labels(df_raw, resample, resample_interval, selected_variables, index_variable)
+		df, index, columns = Utilities.assign_labels(df_raw, resample, resample_interval, selected_variables, index_variable, impute_zero)
 		return df, index, columns
 
 	def data_export(df_future):
@@ -89,7 +92,9 @@ class Visualisation:
 		plt.figure()
 		pd.plotting.lag_plot(df['t1'])
 		plt.savefig(Export_Graph_Path + 'lag_plot_t1.png', dpi = 500)
+		plt.close()
 		# Autocorrelation plot
+		plt.figure()
 		pd.plotting.autocorrelation_plot(df['t1'])
 		plt.savefig(Export_Graph_Path + 'autocorrelation_plot_t1', dpi = 500)
 		plt.close()
@@ -182,12 +187,15 @@ class Utilities:
 		print('\nTrain data size: ' + str(train_size) + '\n' + 'Test data size: ' + str(test_size) + '\n')
 		return train, test
 	
-	def assign_labels(df_raw, resample, resample_interval, selected_variables, index_variable):
+	def assign_labels(df_raw, resample, resample_interval, selected_variables, index_variable, impute_zero = True):
 		'''Assign index and column labels to a Pandas DataFrame and resample it'''
 		df = df_raw[selected_variables]
 		index = df_raw[index_variable]
 		df.set_index(pd.to_datetime(index, unit = 'ms'), inplace = True)
 		df = df.astype('float32')
+		if impute_zero:
+			for column in df:
+				df[column] = df[column].replace(to_replace = 0, method = 'ffill')
 		if resample:
 			df = df.resample(resample_interval).last().ffill()
 		index = df.index
@@ -211,6 +219,12 @@ class Utilities:
 			print('Deleted the oldest backup ' + oldest_file)
 		else:
 			print('Backup number has not exceeded the limit ' + str(backup_max))
+
+	def get_newest_backup_name(backup_path):
+		'''Get the file name of the most up-to-date backup'''
+		backup_list = glob.glob(backup_path + 'local_copy_*.json')
+		newest_file = max(backup_list, key = os.path.getctime)
+		return newest_file
 
 class Pre_Processing:
 	def standardisation(df, n_steps_in, n_steps_out, split_ratio):
@@ -297,7 +311,7 @@ class RNN:
 
 def main():
 	# Import and resample JSON data into neural network required data format
-	df, index, columns = IO.data_import(resample = True, resample_interval = RESAMPLE_INTERVAL, selected_variables = SELECTED_VARIABLES, index_variable = INDEX_VARIABLE, backup_path = BACKUP_PATH)
+	df, index, columns = IO.data_import(resample = True, resample_interval = RESAMPLE_INTERVAL, selected_variables = SELECTED_VARIABLES, index_variable = INDEX_VARIABLE, backup_path = BACKUP_PATH, impute_zero = IMPUTE_ZERO)
 
 	# Some helpful visualisation for engineers to guide engineers' intuition about data
 	Visualisation.exploratory_plot_t1(df)
