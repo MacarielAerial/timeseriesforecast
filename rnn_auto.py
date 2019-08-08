@@ -25,7 +25,7 @@ np.set_printoptions(precision = 1, suppress = True)
 np.random.seed(233)
 
 # Global variables for engineers to adjust
-TRAINING_MODE = True
+TRAINING_MODE = False
 Export_Data_Path = 'Output_Data/'
 Export_Graph_Path = 'Graphic_Aid/'
 BACKUP_PATH = 'Backup_Raw_Data/'
@@ -77,13 +77,15 @@ class Visualisation:
 
 		# A sanity check on actual data
 		print('\n**********Actual ' + str(n_steps_out) + ' Tail Test Data**********')
-		print(test_scaler.inverse_transform(y_test[-1]))
+		testedData = test_scaler.inverse_transform(y_test[-1])
+		print(testedData)
 		print('**********End**********\n')
 		print('**********Predicted ' + str(n_steps_out) + ' Tail Test Data**********')
-		print(test_scaler.inverse_transform(y_test_predicted[-1]))
-        r = redis.Redis(host='172.16.3.88', port=6379, db=3, decode_responses = True)
-	    r.set('testedData',test_scaler.inverse_transform(y_test[-1]))
-	    r.set('predictedData',test_scaler.inverse_transform(y_test_predicted[-1]))
+		predictedData = test_scaler.inverse_transform(y_test_predicted[-1])
+		print(predictedData)
+		r = redis.Redis(host='172.16.3.88', port=6379, db=3, decode_responses = True)
+		r.set('testedData',str(testedData))
+		r.set('predictedData',str(predictedData))
 		print('**********End**********\n')
 		print('**********Actual Tail Data For Deployment**********')
 		print(df[- n_steps_in - n_steps_out:- n_steps_out])
@@ -307,8 +309,10 @@ class RNN:
 		# Print out future data for engineers' reference
 		print('\n**********Predicted Future ' + str(n_steps_out) + ' Tail Data with ' + str(n_steps_in) + ' Lookback**********')
 		print(df_future)
+		r = redis.Redis(host='172.16.3.88', port=6379, db=3, decode_responses = True)	
+		r.set('dfFuture',str(df_future))
+	
 		print('**********End**********\n')
-		
 		# Return prediction about future for export
 		return df_future
 
