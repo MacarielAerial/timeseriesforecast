@@ -16,6 +16,7 @@ from tensorflow.keras.utils import plot_model
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import train_test_split
 from pandas.plotting import register_matplotlib_converters
+import yaml
 
 # Graphic module setting and psudo-random initialisation
 register_matplotlib_converters()
@@ -37,13 +38,16 @@ INDEX_VARIABLE = 'operateTime'
 SELECTED_VARIABLES = ['t1', 't2', 't3', 'l1', 'l2', 'l3', 'u1', 'u2', 'u3']
 IMPUTE_ZERO = True
 BATCH_NORMALIZATION = False
+REDIS_URL = "172.16.3.88"
+REDIS_PORT = 6379
+REDIS_DB = 3
 
 class IO:
 	def data_import(selected_variables, index_variable, backup_path, resample_interval = 'T', resample = True, backup_max = 10, impute_zero = True):
 		'''Import JSON formatted data as dataframes and resample them to given intervals'''
 		try:
 			# Load the newest data from redis
-			r = redis.Redis(host='172.16.3.88', port=6379, db=3, decode_responses = True)
+			r = redis.Redis(host=REDIS_URL, port=REDIS_PORT, db=REDIS_DB, decode_responses = True)
 			byte_json = r.lrange('FH01201904220022||rtDataList', 0, -1)
 			df_raw = Utilities.byte_to_df(byte_json)
 			print('Loaded the the most recent data')
@@ -83,7 +87,7 @@ class Visualisation:
 		print('**********Predicted ' + str(n_steps_out) + ' Tail Test Data**********')
 		predictedData = test_scaler.inverse_transform(y_test_predicted[-1])
 		print(predictedData)
-		r = redis.Redis(host='172.16.3.88', port=6379, db=3, decode_responses = True)
+		r = redis.Redis(host=REDIS_URL, port=REDIS_PORT, db=REDIS_DB, decode_responses = True)
 		r.set('testedData',str(testedData))
 		r.set('predictedData',str(predictedData))
 		print('**********End**********\n')
@@ -309,7 +313,7 @@ class RNN:
 		# Print out future data for engineers' reference
 		print('\n**********Predicted Future ' + str(n_steps_out) + ' Tail Data with ' + str(n_steps_in) + ' Lookback**********')
 		print(df_future)
-		r = redis.Redis(host='172.16.3.88', port=6379, db=3, decode_responses = True)	
+		r = redis.Redis(host=REDIS_URL, port=REDIS_PORT, db=REDIS_DB, decode_responses = True)
 		r.set('dfFuture',str(df_future))
 	
 		print('**********End**********\n')
